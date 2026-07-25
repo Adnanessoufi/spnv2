@@ -100,4 +100,107 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
                 progress.display_summary()
 
     # TODO: tensorboard logging
+    def do_validate_loss(
+        epoch,
+        cfg,
+        model,
+        data_loader,
+        device=torch.device("cpu"),
+        scaler=None,
+        valid_fraction=None,
+    ):
+        """Evaluate the supervised SPE3R pretraining objective.
+
+        The model remains in evaluation mode, but the training branch of
+        its forward method is used so that it returns the configured
+        classification, box, rotation, and segmentation losses.
+        """
+
+    loss_names = []
+
+    if "heatmap" in cfg.MODEL.HEAD.LOSS_HEADS:
+        loss_names += ["hmap"]
+
+    if "efficientpose" in cfg.MODEL.HEAD.LOSS_HEADS:
+        loss_names += ["cls", "box", "pose"]
+
+    if "segmentation" in cfg.MODEL.HEAD.LOSS_HEADS:
+        loss_names += ["seg"]
+
+    loss_meters = {
+        name: AverageMeter(
+            name,
+            "",
+            ":.4e",
+        )
+        for name in loss_names
+    }
+
+    total_meter = AverageMeter(
+        "total",
+        "",
+        ":.4e",
+    )
+
+    num_batches = len(data_loader)
+
+    if valid_fraction is not None:
+        if not 0 < valid_fraction <= 1:
+            raise ValueError(
+                "valid_fraction must be within (0, 1]."
+            )
+
+        num_batches = max(
+            1,
+            int(num_batches * valid_fraction),
+        )
+
+    # BatchNorm uses stored statistics and no parameter
+    # updates occur during validation.
+    model.eval()
+
+    with torch.no_grad():
+        for index, (images, targets) in enumerate(
+            data_loader
+        ):
+            if index >= num_batches:
+                break
+
+            with autocast(
+                enabled=scaler is not None
+            ):
+                loss, loss_items = model(
+                    images,
+                    is_train=True,
+                    gpu=device,
+                    **targets,
+                )
+
+            batch_size = images.shape[0]
+
+            total_meter.update(
+                float(loss),
+                batch_size,
+            )
+
+            for name, value in loss_items.items():
+                if name in loss_meters:
+                    loss_meters[name].update(
+                        float(value),
+                        batch_size,
+                    )
+
+    loss_summary = " | ".join(
+        f"{name}: {meter.avg:.4e}"
+        for name, meter in loss_meters.items()
+    )
+
+    logger.info(
+        "SPE3R Validation %03d | total: %.4e | %s",
+        epoch + 1,
+        total_meter.avg,
+        loss_summary,
+    )
+
+    return total_meter.avg
 

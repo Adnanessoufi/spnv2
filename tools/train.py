@@ -23,7 +23,10 @@ from config  import cfg, update_config
 from nets    import build_spnv2
 from dataset import get_dataloader
 from solver  import get_optimizer, adjust_learning_rate, get_scaler
-from engine.trainer    import do_train
+from engine.trainer import (
+    do_train,
+    do_validate_loss,
+)
 from engine.inference  import do_valid
 from utils.checkpoints import load_checkpoint, save_checkpoint
 from utils.utils import set_seeds_cudnn, setup_logger, create_logger_directories, \
@@ -203,9 +206,25 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
         best_score  = 1e20
 
     # For validation
-    camera = load_camera_intrinsics(cfg.DATASET.CAMERA)
-    keypts_true_3D = load_tango_3d_keypoints(cfg.DATASET.KEYPOINTS)
+    # Validation strategy depends on the dataset.
+    is_spe3r = (
+        cfg.DATASET.DATANAME.lower() == "spe3r"
+    )
 
+    if is_spe3r:
+        # SPE3R validation uses the supervised multitask loss.
+        # Tango camera and keypoints are not required.
+        camera = None
+        keypts_true_3D = None
+
+    else:
+        camera = load_camera_intrinsics(
+            cfg.DATASET.CAMERA
+        )
+
+        keypts_true_3D = load_tango_3d_keypoints(
+            cfg.DATASET.KEYPOINTS
+        )
     # ---------------------------------------
     # Main loop
     # ---------------------------------------
@@ -231,15 +250,29 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
         if not args.distributed or (args.distributed and args.rank == 0):
             # Validate on the fraction of dataset
             if (epoch+1) % cfg.TRAIN.VALID_FREQ == 0:
-                score = do_valid(epoch,
-                                 cfg,
-                                 model,
-                                 val_loader,
-                                 camera,
-                                 keypts_true_3D,
-                                 valid_fraction=cfg.TRAIN.VALID_FRACTION,
-                                 log_dir=None,
-                                 device=device)
+                if is_spe3r:
+                    score = do_validate_loss(
+                        epoch,
+                        cfg,
+                        model,
+                        val_loader,
+                        device=device,
+                        scaler=scaler,
+                        valid_fraction=cfg.TRAIN.VALID_FRACTION,
+                    )
+
+                else:
+                    score = do_valid(
+                        epoch,
+                        cfg,
+                        model,
+                        val_loader,
+                        camera,
+                        keypts_true_3D,
+                        valid_fraction=cfg.TRAIN.VALID_FRACTION,
+                        log_dir=None,
+                        device=device,
+                    )
 
                 if score < best_score:
                     best_score = score
