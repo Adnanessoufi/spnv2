@@ -135,3 +135,9 @@ dmypy.json
 /matlab
 /misc
 */ablation
+
+# Local research artifacts
+/baseline_results/
+/checkpoints/
+*.backup
+*.before_utf8_fix

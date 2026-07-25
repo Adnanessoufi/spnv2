@@ -13,6 +13,7 @@ import logging
 import time
 from scipy.io import savemat
 
+import numpy as np
 import torch
 
 from utils.utils       import AverageMeter, ProgressMeter
@@ -266,7 +267,26 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
         # savemat(predfn, {'hmap': heatmaps, 'hmap_q': q_hmap, 'hmap_t': t_hmap, 'eff_R': R_reg, 'eff_t': t_reg}, appendmat=False)
 
         predfn = os.path.join(log_dir, 'predictions_pose.mat')
-        savemat(predfn, {'heat_q': q_hmap, 'heat_t': t_hmap, 'effi_R': R_reg, 'effi_t': t_reg, 'bbox': bbox_reg, 'reject': h_reject}, appendmat=False)
+
+        # Replace rejected heatmap predictions (None) with NaN values
+        # so they can be saved in MATLAB format.
+        q_hmap_save = np.array([
+            np.full(4, np.nan, dtype=np.float32) if q is None else q
+            for q in q_hmap
+        ])
+        t_hmap_save = np.array([
+            np.full(3, np.nan, dtype=np.float32) if t is None else t
+            for t in t_hmap
+        ])
+
+        savemat(predfn, {
+            'heat_q': q_hmap_save,
+            'heat_t': t_hmap_save,
+            'effi_R': R_reg,
+            'effi_t': t_reg,
+            'bbox': bbox_reg,
+            'reject': h_reject
+        }, appendmat=False)
         logger.info(f'Pose predictions saved to {predfn}')
 
     return metrics['final_pose'].avg

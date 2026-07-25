@@ -254,7 +254,7 @@ def _write_model_info(module, log_dir, filename, depth=3):
                             col_names=["kernel_size", "num_params"],
                             row_settings=["var_names"],
                             verbose=0)
-    with open(os.path.join(log_dir, filename), 'w') as f:
+    with open(os.path.join(log_dir, filename), 'w', encoding='utf-8') as f:
         f.write(str(model_summary))
 
 def write_model_info(model, log_dir):
