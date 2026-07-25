@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 
 from ..layers import DepthwiseSeparableConv
-from ..loss   import FocalLoss, CIoULoss, TransformationLoss, SPEEDLoss
+from ..loss   import FocalLoss, CIoULoss, TransformationLoss, SPEEDLoss, RotationLoss
 from .anchors import create_anchors, compute_anchor_state
 from utils.utils import load_camera_intrinsics, load_cad_model
 from utils.postprocess import raw_output_to_bbox, delta_xy_tz_to_translation
@@ -474,6 +474,14 @@ class EfficientPoseHead(nn.Module):
             self.pose_loss = TransformationLoss(self.model_points)
         elif self.pose_loss_type == 'speed':
             self.pose_loss = SPEEDLoss()
+        elif self.pose_loss_type == "rotation":
+            self.pose_loss = RotationLoss()
+
+        else:
+            raise ValueError(
+                "Unsupported pose regression loss: "
+                f"{self.pose_loss_type}"
+            )
 
     def forward(self, features, **targets):
         # Apply each heads to feature maps
