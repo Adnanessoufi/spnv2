@@ -62,6 +62,7 @@ class SPE3RDataset(torch.utils.data.Dataset):
 
         self.split = split
         self.is_train = split == "train"
+        self.is_supervised = split in {"train", "val"}
 
         self.image_size = tuple(cfg.DATASET.IMAGE_SIZE)
         self.input_size = tuple(cfg.DATASET.INPUT_SIZE)
@@ -73,7 +74,7 @@ class SPE3RDataset(torch.utils.data.Dataset):
 
         self.head_names = (
             list(cfg.MODEL.HEAD.LOSS_HEADS)
-            if self.is_train
+            if self.is_supervised
             else list(cfg.TEST.HEAD)
         )
 
@@ -220,7 +221,7 @@ class SPE3RDataset(torch.utils.data.Dataset):
             ),
         }
 
-        if self.is_train and self.load_masks:
+        if self.is_supervised and self.load_masks:
             mask_output = cv2.resize(
                 mask,
                 self.output_size,

@@ -8,6 +8,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+
 import torch
 import numpy as np
 import random
@@ -15,6 +16,7 @@ import random
 from .SPEEDPLUSDataset  import SPEEDPLUSDataset
 from .transforms        import *
 from .target_generators import HeatmapGenerator
+from .SPE3RDataset import SPE3RDataset
 
 def _seed_worker(worker_id):
     """ Set seeds for dataloader workers. For more information, see below
@@ -44,7 +46,30 @@ def build_dataset(cfg, split='train', load_labels=True):
     else:
         target_generators = None
 
-    dataset = SPEEDPLUSDataset(cfg, split, transforms, target_generators)
+    dataname = cfg.DATASET.DATANAME.lower()
+
+    if dataname == "spe3r":
+        dataset_class = SPE3RDataset
+
+    elif (
+        "speedplus" in dataname
+        or dataname == "prisma25"
+        or "shirt" in dataname
+    ):
+        dataset_class = SPEEDPLUSDataset
+
+    else:
+        raise ValueError(
+            f"Unsupported dataset: "
+            f"{cfg.DATASET.DATANAME}"
+        )
+
+    dataset = dataset_class(
+        cfg,
+        split,
+        transforms,
+        target_generators,
+    )
 
     return dataset
 
