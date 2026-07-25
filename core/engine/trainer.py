@@ -100,21 +100,22 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
                 progress.display_summary()
 
     # TODO: tensorboard logging
-    def do_validate_loss(
-        epoch,
-        cfg,
-        model,
-        data_loader,
-        device=torch.device("cpu"),
-        scaler=None,
-        valid_fraction=None,
-    ):
-        """Evaluate the supervised SPE3R pretraining objective.
 
-        The model remains in evaluation mode, but the training branch of
-        its forward method is used so that it returns the configured
-        classification, box, rotation, and segmentation losses.
-        """
+def do_validate_loss(
+    epoch,
+    cfg,
+    model,
+    data_loader,
+    device=torch.device("cpu"),
+    scaler=None,
+    valid_fraction=None,
+):
+    """Evaluate the supervised SPE3R pretraining objective.
+
+    The model remains in evaluation mode, but the supervised forward
+    path is used to calculate classification, bounding-box, rotation,
+    and segmentation losses.
+    """
 
     loss_names = []
 
@@ -155,8 +156,6 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
             int(num_batches * valid_fraction),
         )
 
-    # BatchNorm uses stored statistics and no parameter
-    # updates occur during validation.
     model.eval()
 
     with torch.no_grad():
@@ -203,4 +202,3 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
     )
 
     return total_meter.avg
-
