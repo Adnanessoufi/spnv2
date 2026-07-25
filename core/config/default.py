@@ -54,6 +54,7 @@ _C.DATASET.DATANAME  = 'speedplus'                          # Dataset name
 _C.DATASET.CAMERA    = 'camera.json'                        # .json file containing camera parameters
 _C.DATASET.KEYPOINTS = 'models/tangoPoints.mat'             # .mat file containing [3 x N] keypoints (m)
 _C.DATASET.CADMODEL  = 'models/tango.ply'                   # .ply file containing target 3D model
+_C.DATASET.SPACECRAFT = []                                  # Optional SPE3R spacecraft subset
 
 # - Dataset characteristics
 _C.DATASET.NUM_KEYPOINTS   = 11                             # Number of keypoints to detect
@@ -174,7 +175,7 @@ _C.MODEL.HEAD.LOSS_NUMS = [2]                               # Number of loss ite
 _C.MODEL.HEAD.EFFICIENTPOSE_LOSS_FACTOR = None              # Loss scaling factors for EfficientPose head: [cls, bbox, pose]
 _C.MODEL.HEAD.ANCHOR_SCALE = None
 _C.MODEL.HEAD.ANCHOR_RATIO = None
-_C.MODEL.HEAD.POSE_REGRESSION_LOSS = 'transformation'       # Pose regression loss -- 'transformation' or 'speed'
+_C.MODEL.HEAD.POSE_REGRESSION_LOSS = 'transformation'       # Pose loss: transformation, speed, or rotation
 
 
 def update_config(cfg, args):
@@ -191,7 +192,17 @@ def update_config(cfg, args):
         raise AssertionError("Only efficientdet backbones are supported at the moment.")
 
     # Full paths to auxiliary files
-    cfg.DATASET.CAMERA    = join(cfg.DATASET.ROOT, cfg.DATASET.DATANAME, cfg.DATASET.CAMERA)
+    if cfg.DATASET.DATANAME.lower() == "spe3r":
+        cfg.DATASET.CAMERA = join(
+            cfg.DATASET.ROOT,
+            cfg.DATASET.CAMERA,
+        )
+    else:
+        cfg.DATASET.CAMERA = join(
+            cfg.DATASET.ROOT,
+            cfg.DATASET.DATANAME,
+            cfg.DATASET.CAMERA,
+        )
     cfg.DATASET.KEYPOINTS = join(cfg.DATASET.ROOT, cfg.DATASET.KEYPOINTS)
     cfg.DATASET.CADMODEL  = join(cfg.DATASET.ROOT, cfg.DATASET.CADMODEL)
 
@@ -203,8 +214,20 @@ def update_config(cfg, args):
     if not isinstance(cfg.MODEL.HEAD.LOSS_FACTORS, (list, tuple)):
         cfg.MODEL.HEAD.LOSS_FACTORS = [cfg.MODEL.HEAD.LOSS_FACTORS]
 
-    if cfg.MODEL.HEAD.POSE_REGRESSION_LOSS not in ['speed', 'transformation']:
-        raise ValueError('Pose regression loss must be either transformation or speed')
+    valid_pose_losses = [
+        "speed",
+        "transformation",
+        "rotation",
+    ]
+
+    if (
+        cfg.MODEL.HEAD.POSE_REGRESSION_LOSS
+        not in valid_pose_losses
+    ):
+        raise ValueError(
+            "Pose regression loss must be one of: "
+            + ", ".join(valid_pose_losses)
+        )
 
     # TODO: There may be other useful checks to include
 
