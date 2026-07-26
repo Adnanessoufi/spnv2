@@ -67,21 +67,69 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
                                      gpu=device,
                                      **targets)
 
+        # Fail immediately if the forward pass produced NaN or Inf.
+        if not torch.isfinite(loss).all():
+            values = {
+                name: float(value.detach())
+                for name, value in loss_items.items()
+            }
+            raise FloatingPointError(
+                f"Non-finite forward loss at epoch {epoch + 1}, "
+                f"batch {idx}: total={float(loss.detach())}, "
+                f"items={values}"
+            )
+
         # Compute & update gradient
         if scaler is not None:
             # Use mixed-precision
+            scale_before = scaler.get_scale()
+
             scaler.scale(loss).backward()
 
-            # Unscale before clipping
+            # Unscale before clipping.
             scaler.unscale_(optimizer)
-            clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(optimizer)
 
-            # Update the scale for next iteration
+            grad_norm = clip_grad_norm_(
+                model.parameters(),
+                1.0,
+            )
+
+            # GradScaler skips the optimizer update when it detects
+            # FP16 overflow, then lowers the scale automatically.
+            scaler.step(optimizer)
             scaler.update()
+
+            scale_after = scaler.get_scale()
+
+            if not torch.isfinite(grad_norm):
+                if scale_after < scale_before:
+                    if rank == 0:
+                        print(
+                            f"FP16 overflow handled at epoch "
+                            f"{epoch + 1}, batch {idx}: "
+                            f"scale {scale_before:.0f} -> "
+                            f"{scale_after:.0f}"
+                        )
+                else:
+                    raise FloatingPointError(
+                        f"Non-finite FP16 gradient was not handled "
+                        f"at epoch {epoch + 1}, batch {idx}: "
+                        f"grad_norm={float(grad_norm)}"
+                    )
         else:
             loss.backward()
-            clip_grad_norm_(model.parameters(), 1.0)
+
+            grad_norm = clip_grad_norm_(
+                model.parameters(),
+                1.0,
+            )
+
+            if not torch.isfinite(grad_norm):
+                raise FloatingPointError(
+                    f"Non-finite gradient at epoch {epoch + 1}, "
+                    f"batch {idx}: grad_norm={float(grad_norm)}"
+                )
+
             optimizer.step()
 
         # Record losses

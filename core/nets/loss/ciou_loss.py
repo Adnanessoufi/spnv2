@@ -20,6 +20,9 @@ def ciou_loss(bbox1, bbox2, return_iou=False):
 
     Bounding boxes [..., 4] are organized as [xmin, ymin, xmax, ymax] (pix)
     '''
+    # Numerical epsilon for safe divisions.
+    eps = torch.finfo(bbox1.dtype).eps
+
     w1  = bbox1[...,2] - bbox1[...,0]
     h1  = bbox1[...,3] - bbox1[...,1]
     xc1 = bbox1[...,0] + w1/2
@@ -43,7 +46,9 @@ def ciou_loss(bbox1, bbox2, return_iou=False):
                         torch.clamp((inter_b - inter_t), min=0)
 
     # Union
-    union = area1 + area2 - inter_area + 1e-16
+    union = (
+        area1 + area2 - inter_area
+    ).clamp_min(eps)
 
     # IoU
     iou = inter_area / union
@@ -57,6 +62,7 @@ def ciou_loss(bbox1, bbox2, return_iou=False):
     inter_diag = (xc2 - xc1).pow(2) + (yc2 - yc1).pow(2)
     c_diag = torch.clamp((c_r - c_l), min=0).pow(2) + \
                     torch.clamp((c_b - c_t), min=0).pow(2)
+    c_diag = c_diag.clamp_min(eps)
 
     # Normalized central point distance
     u = (inter_diag) / c_diag
@@ -66,7 +72,9 @@ def ciou_loss(bbox1, bbox2, return_iou=False):
     v = (4 / (math.pi ** 2)) * (torch.atan2(w2, h2) - torch.atan2(w1, h1)).pow(2) # torch.atan causes NaN loss
     with torch.no_grad():
         S = (iou>0.5).half()
-        alpha = S*v/(1-iou+v)
+        alpha = S * v / (
+            1 - iou + v
+        ).clamp_min(eps)
 
     # Complete IoU
     cious = iou - u - alpha * v
@@ -91,6 +99,10 @@ class CIoULoss(nn.Module):
 
         positive_indices = torch.eq(anchor_states, 1)
         num_positive_indices = positive_indices.sum()
+
+        # Return a differentiable zero when no anchors are positive.
+        if num_positive_indices.item() == 0:
+            return bbox_pred.sum() * 0.0
 
         # Apply bbox loss to anchors with IoU > 0.5
         bbox_pred = bbox_pred[positive_indices, :]
