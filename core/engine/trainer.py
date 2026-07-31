@@ -142,9 +142,13 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
 
         # Report progress to console
         if rank == 0:
-            if cfg.VERBOSE:
+            if cfg.VERBOSE and (
+                idx % 1000 == 0
+                or idx + 1 == len(data_loader)
+            ):
                 progress.display(idx)
-            if idx+1 == len(data_loader):
+
+            if idx + 1 == len(data_loader):
                 progress.display_summary()
 
     # TODO: tensorboard logging
