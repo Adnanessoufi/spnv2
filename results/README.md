@@ -49,3 +49,17 @@ Both Model A and Model B will be retrained using:
 - identical optimization settings for both models
 Model A will be trained and evaluated first to verify that the baseline can be
 reproduced before running Model B.
+
+## BatchNorm recalibration diagnostic
+
+The backbone BatchNorm statistics of the preliminary Model A checkpoint were
+recalibrated using synthetic Tango training images without updating the learned
+model weights.
+
+The Lightbox final pose score improved from approximately 0.287 to 0.257.
+However, this remained substantially worse than the official SPNv2 score of
+0.141.
+
+This indicated that BatchNorm running statistics contributed to the performance
+gap, but they were not the only cause. The learned weights were also affected by
+the incorrect small-batch training regime.
