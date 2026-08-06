@@ -44,15 +44,13 @@ class SPE3RDataset(torch.utils.data.Dataset):
             raise IndexError(f'Sample index {index} is outside the dataset range 0-{len(self) - 1}.')
         sample = self.samples[index]
         image = self._load_image(sample)
-        if not self.load_labels: # WE DONT CARE AS LOAD_LABELS IS TRUE
+        if not self.load_labels:
             if self.transforms is not None:
                 image = self.transforms(image=image)['image']
             return image
         mask = self._load_mask(sample)
         boundingbox = self._bounding_box_from_mask(mask)
         transform_kwargs = {'image': image, 'bboxes': [boundingbox], 'class_labels': [sample['spacecraft']]}
-        if self.load_masks:
-            transform_kwargs["mask"] = mask
         if self.transforms is not None:
             transformed = self.transforms(**transform_kwargs)
             image = transformed['image']
@@ -62,10 +60,6 @@ class SPE3RDataset(torch.utils.data.Dataset):
                     f"{sample['spacecraft']}/{sample['filename']}."
                 )
             boundingbox = np.asarray(transformed['bboxes'][0], dtype=np.float32)
-            if self.load_masks:
-                mask = transformed["mask"]
-                if torch.is_tensor(mask):
-                    mask = mask.cpu().numpy()
 
         boundingbox *= np.asarray([self.input_size[0], self.input_size[1], self.input_size[0], self.input_size[1]], dtype=np.float32)
         quaternion = np.asarray(sample['quaternion'], dtype=np.float32)
