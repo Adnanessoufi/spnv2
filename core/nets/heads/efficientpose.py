@@ -475,7 +475,7 @@ class EfficientPoseHead(nn.Module):
         elif self.pose_loss_type == 'speed':
             self.pose_loss = SPEEDLoss()
         elif self.pose_loss_type == "rotation":
-            self.pose_loss = RotationLoss()
+            self.pose_loss = RotationLoss() #added this
 
         else:
             raise ValueError(
