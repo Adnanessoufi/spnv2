@@ -40,15 +40,15 @@ Primary per-image evaluation logs are retained in:
 - `frozen_hil_seed2021/`
 - `official_spnv2_frozen/`
 ## Next experiment
-Both Model A and Model B will be retrained using:
-- 2 NVIDIA A100 GPUs
-- 8 images per GPU
-- global batch size 16
-- DistributedDataParallel
-- synchronized BatchNorm
-- identical optimization settings for both models
-Model A will be trained and evaluated first to verify that the baseline can be
-reproduced before running Model B.
+Model A and Model B will be retrained under the same controlled setup:
+- 1 NVIDIA A100 80GB
+- target physical/global batch size 16 on the single GPU, subject to the memory smoke test
+- no DistributedDataParallel
+- no SyncBatchNorm
+- identical optimization and Tango-training settings for both models
+- Model A: ImageNet -> Tango
+- Model B: ImageNet -> SPE3R -> Tango
+- frozen Lightbox and Sunlamp evaluation after training
 
 ## BatchNorm recalibration diagnostic
 

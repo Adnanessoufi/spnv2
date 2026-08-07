@@ -15,6 +15,8 @@ from PIL import Image
 
 
 EXPECTED_SIZE = (768, 512)
+JPEG_QUALITY = 95
+GENERATION_STATE_NAME = "_style_generation_state.json"
 CHECKPOINT_NAMES = (
     "checkpoint_transformer.pth",
     "checkpoint_stylepredictor.pth",
@@ -33,6 +35,93 @@ def sha256_file(path: Path) -> str:
             digest.update(chunk)
 
     return digest.hexdigest()
+
+
+def filename_list_sha256(names: list[str]) -> str:
+    return hashlib.sha256(
+        "\n".join(names).encode("utf-8")
+    ).hexdigest()
+
+
+def write_json(path: Path, data: dict) -> None:
+    temporary_path = path.with_name(
+        path.name + ".temporary"
+    )
+    temporary_path.write_text(
+        json.dumps(data, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(path)
+
+
+def ensure_generation_state(
+    output_dir: Path,
+    existing: set[str],
+    current_state: dict,
+) -> None:
+    state_path = output_dir / GENERATION_STATE_NAME
+    if not state_path.exists():
+        if existing:
+            raise RuntimeError(
+                "Existing JPG files require a generation state "
+                f"file: {state_path}"
+            )
+        write_json(state_path, current_state)
+        return
+    try:
+        stored_state = json.loads(
+            state_path.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"Cannot read generation state: {state_path}"
+        ) from error
+    if not isinstance(stored_state, dict):
+        raise RuntimeError(
+            f"Invalid generation state: {state_path}"
+        )
+    if stored_state != current_state:
+        keys = set(stored_state) | set(current_state)
+        differences = sorted(
+            key
+            for key in keys
+            if stored_state.get(key) != current_state.get(key)
+        )
+        raise RuntimeError(
+            "Generation state differs from the requested "
+            "recipe; refusing to mix outputs. Differences: "
+            + ", ".join(differences)
+        )
+
+
+def write_manifest(
+    output_dir: Path,
+    source_dir: Path,
+    csv_path: Path,
+    state: dict,
+) -> None:
+    manifest = {
+        "purpose": (
+            "SPEED+ Tango pre-generated style augmentation "
+            "for SPNv2 training."
+        ),
+        "style_repository_commit": state["styleaugmentor_commit"],
+        "alpha": state["alpha"],
+        "seed": state["seed"],
+        "image_count": state["expected_image_count"],
+        "image_size": state["expected_image_size"],
+        "source_directory": str(source_dir.resolve()),
+        "output_directory": str(output_dir.resolve()),
+        "training_csv": str(csv_path.resolve()),
+        "filename_list_sha256": state["filename_list_sha256"],
+        "checkpoint_sha256": state["checkpoint_sha256"],
+        "jpeg_quality": state["jpeg_quality"],
+        "generation_state": state,
+        "verification_passed": True,
+    }
+    manifest_path = output_dir / "_style_generation_manifest.json"
+    write_json(manifest_path, manifest)
+    print("Manifest:", manifest_path)
 
 
 def filename_seed(base_seed: int, name: str) -> int:
@@ -119,7 +208,7 @@ def save_jpeg(
     ).save(
         temporary_path,
         format="JPEG",
-        quality=95,
+        quality=JPEG_QUALITY,
     )
 
     with Image.open(temporary_path) as check:
@@ -229,6 +318,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if not 0.0 <= args.alpha <= 1.0:
+        raise ValueError("alpha must be within [0.0, 1.0].")
+    if args.batch_size < 1:
+        raise ValueError("batch_size must be at least 1.")
+    if args.expected_count < 1:
+        raise ValueError("expected_count must be at least 1.")
+
     for path in (
         args.source,
         args.csv,
@@ -283,13 +379,14 @@ def main() -> None:
         / "checkpoints"
     )
 
+    checkpoint_sha256 = {}
     for name in CHECKPOINT_NAMES:
         path = checkpoint_dir / name
-
         if not path.exists() or path.stat().st_size == 0:
             raise RuntimeError(
                 f"Missing or empty checkpoint: {path}"
             )
+        checkpoint_sha256[name] = sha256_file(path)
 
     args.output.mkdir(
         parents=True,
@@ -304,6 +401,22 @@ def main() -> None:
         path.name
         for path in args.output.glob("*.jpg")
     }
+    generation_state = {
+        "format_version": 1,
+        "seed": args.seed,
+        "alpha": args.alpha,
+        "styleaugmentor_commit": commit,
+        "checkpoint_sha256": checkpoint_sha256,
+        "filename_list_sha256": filename_list_sha256(names),
+        "expected_image_count": args.expected_count,
+        "expected_image_size": list(EXPECTED_SIZE),
+        "jpeg_quality": JPEG_QUALITY,
+    }
+    ensure_generation_state(
+        args.output,
+        existing,
+        generation_state,
+    )
 
     unexpected_existing = existing - set(names)
 
@@ -334,6 +447,12 @@ def main() -> None:
             names,
             args.source,
             args.output,
+        )
+        write_manifest(
+            args.output,
+            args.source,
+            args.csv,
+            generation_state,
         )
         return
 
@@ -385,6 +504,10 @@ def main() -> None:
         batch_names = pending[
             position:position + current_batch_size
         ]
+        image_batch = None
+        latent_batch = None
+        embedding = None
+        styled_batch = None
 
         try:
             image_batch = torch.stack(
@@ -448,10 +571,13 @@ def main() -> None:
                 )
 
         except torch.cuda.OutOfMemoryError:
-            del image_batch
+            image_batch = None
+            latent_batch = None
+            embedding = None
+            styled_batch = None
             torch.cuda.empty_cache()
 
-            if current_batch_size == 1:
+            if current_batch_size <= 1:
                 raise
 
             current_batch_size = 1
@@ -475,10 +601,10 @@ def main() -> None:
         position += len(batch_names)
         completed += len(batch_names)
 
-        del image_batch
-        del styled_batch
-        del embedding
-        del latent_batch
+        image_batch = None
+        styled_batch = None
+        embedding = None
+        latent_batch = None
 
         if completed % 100 == 0 or position == len(pending):
             elapsed = time.time() - start_time
@@ -500,44 +626,13 @@ def main() -> None:
         args.output,
     )
 
-    manifest = {
-        "purpose": (
-            "SPEED+ Tango pre-generated style augmentation "
-            "for SPNv2 training."
-        ),
-        "style_repository_commit": commit,
-        "alpha": args.alpha,
-        "seed": args.seed,
-        "image_count": len(names),
-        "image_size": list(EXPECTED_SIZE),
-        "source_directory": str(args.source.resolve()),
-        "output_directory": str(args.output.resolve()),
-        "training_csv": str(args.csv.resolve()),
-        "filename_list_sha256": hashlib.sha256(
-            "\n".join(names).encode("utf-8")
-        ).hexdigest(),
-        "checkpoint_sha256": {
-            name: sha256_file(checkpoint_dir / name)
-            for name in CHECKPOINT_NAMES
-        },
-        "jpeg_quality": 95,
-        "verification_passed": True,
-    }
-
-    manifest_path = (
-        args.output
-        / "_style_generation_manifest.json"
+    write_manifest(
+        args.output,
+        args.source,
+        args.csv,
+        generation_state,
     )
 
-    manifest_path.write_text(
-        json.dumps(
-            manifest,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    print("Manifest:", manifest_path)
     print("\nFULL STYLE GENERATION COMPLETED")
 
 

@@ -1,0 +1,79 @@
+ROOT: .
+OUTPUT_DIR: outputs
+LOG_DIR: logs
+SEED: 2021
+AUTO_RESUME: true
+CUDA: true
+FP16: true
+VERBOSE: false
+EXP_NAME: spe3r_pretrain_b0_phi3_azure_seed2021
+
+DIST:
+  MULTIPROCESSING_DISTRIBUTED: false
+  BACKEND: nccl
+  RANK: 0
+
+CUDNN:
+  BENCHMARK: true
+  DETERMINISTIC: false
+  ENABLED: true
+
+DATASET:
+  ROOT: AZURE_SPE3R_ROOT
+  DATANAME: spe3r
+  CAMERA: camera.json
+  IMAGE_SIZE: [256, 256]
+  INPUT_SIZE: [256, 256]
+  OUTPUT_SIZE: [4, 8, 16, 32, 64, 128]
+  MAX_NUM_OBJECTS: 1
+  NUM_ANCHORS: 9
+  SPACECRAFT: []
+
+AUGMENT:
+  P: 0.5
+  APPLY_TEXTURE_RANDOMIZATION: false
+  ADJUST_BRIGHTNESS_CONTRAST: true
+  APPLY_BLUR: true
+  APPLY_SOLAR_FLARE: true
+  APPLY_RANDOM_ERASE: true
+  APPLY_NOISE: true
+
+TRAIN:
+  BEGIN_EPOCH: 0
+  END_EPOCH: 20
+  VALID_FREQ: 1
+  VALID_FRACTION: 1.0
+  IMAGES_PER_GPU: 16
+  OPTIMIZER: AdamW
+  LR: 0.001
+  SCHEDULER: step
+  LR_FACTOR: 0.1
+  LR_STEP: [15, 18]
+  GAMMA1: 0.9
+  GAMMA2: 0.999
+  WD: 0.0001
+  WORKERS: 4
+
+TEST:
+  IMAGES_PER_GPU: 1
+  HEAD: [efficientpose, segmentation]
+
+MODEL:
+  BACKBONE:
+    NAME: efficientdet_d3
+
+  HEAD:
+    NAMES: [efficientpose, segmentation]
+    LOSS_HEADS: [efficientpose, segmentation]
+    LOSS_FACTORS: [1.0, 1.0]
+    LOSS_NUMS: [3, 1]
+    EFFICIENTPOSE_LOSS_FACTOR: [1.0, 1.0, 1.0]
+    POSE_REGRESSION_LOSS: rotation
+    ANCHOR_SCALE: '[2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]'
+    ANCHOR_RATIO: [[1.0, 1.0], [1.4, 0.7], [0.7, 1.4]]
+
+  EFFICIENTDET_PHI: 3
+  USE_GROUPNORM_BACKBONE: false
+  USE_GROUPNORM_HEADS: true
+  GROUPNORM_SIZE: 16
+  FIND_UNUSED_PARAM: false
